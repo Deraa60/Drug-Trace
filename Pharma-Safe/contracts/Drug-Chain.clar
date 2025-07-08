@@ -168,27 +168,10 @@
   (is-eq (len hash-buffer) u32)
 )
 
-(define-private (validate-company-name (company-name (string-ascii 120)))
-  (begin
-    (asserts! (> (len company-name) u0) ERR-INVALID-STRING-LENGTH)
-    (asserts! (<= (len company-name) u120) ERR-INVALID-STRING-LENGTH)
-    (ok company-name)
-  )
-)
-
-(define-private (validate-location (location (string-ascii 200)))
-  (begin
-    (asserts! (> (len location) u0) ERR-INVALID-STRING-LENGTH)
-    (asserts! (<= (len location) u200) ERR-INVALID-STRING-LENGTH)
-    (ok location)
-  )
-)
-
-(define-private (validate-method-description (method (string-ascii 120)))
-  (begin
-    (asserts! (> (len method) u0) ERR-INVALID-STRING-LENGTH)
-    (asserts! (<= (len method) u120) ERR-INVALID-STRING-LENGTH)
-    (ok method)
+(define-private (validate-string-length (input-str (string-ascii 500)) (max-len uint))
+  (and 
+    (> (len input-str) u0)
+    (<= (len input-str) max-len)
   )
 )
 
@@ -201,16 +184,16 @@
 )
   (let (
     (current-time (unwrap-panic (get-block-info? time (- block-height u1))))
-    (validated-name (unwrap! (validate-company-name company-name) ERR-INVALID-INPUT-FORMAT))
-    (validated-location (unwrap! (validate-location facility-location) ERR-INVALID-INPUT-FORMAT))
   )
     (asserts! (is-eq tx-sender (var-get platform-admin)) ERR-UNAUTHORIZED-ACCESS)
     (asserts! (is-valid-principal manufacturer-principal) ERR-INVALID-PRINCIPAL)
+    (asserts! (validate-string-length company-name u120) ERR-INVALID-STRING-LENGTH)
+    (asserts! (validate-string-length facility-location u200) ERR-INVALID-STRING-LENGTH)
     (asserts! (is-none (map-get? drug-manufacturers manufacturer-principal)) ERR-DUPLICATE-REGISTRATION)
     
     (ok (map-set drug-manufacturers manufacturer-principal {
-      company-name: validated-name,
-      facility-location: validated-location,
+      company-name: company-name,
+      facility-location: facility-location,
       license-active: true,
       registration-time: current-time,
       licensing-authority: tx-sender
@@ -275,13 +258,14 @@
     (manufacturer tx-sender)
     (current-time (unwrap-panic (get-block-info? time (- block-height u1))))
     (manufacturer-record (unwrap! (map-get? drug-manufacturers manufacturer) ERR-UNAUTHORIZED-ACCESS))
-    (validated-location (unwrap! (validate-location current-location) ERR-INVALID-INPUT-FORMAT))
   )
     ;; Validation checks
     (asserts! (get license-active manufacturer-record) ERR-UNAUTHORIZED-ACCESS)
-    (asserts! (is-valid-string brand-name) ERR-INVALID-INPUT-FORMAT)
-    (asserts! (is-valid-string batch-code) ERR-INVALID-INPUT-FORMAT)
-    (asserts! (is-valid-string regulatory-approval) ERR-INVALID-INPUT-FORMAT)
+    (asserts! (validate-string-length brand-name u150) ERR-INVALID-STRING-LENGTH)
+    (asserts! (validate-string-length batch-code u100) ERR-INVALID-STRING-LENGTH)
+    (asserts! (validate-string-length current-location u200) ERR-INVALID-STRING-LENGTH)
+    (asserts! (validate-string-length regulatory-approval u100) ERR-INVALID-STRING-LENGTH)
+    (asserts! (validate-string-length active-ingredients u300) ERR-INVALID-STRING-LENGTH)
     (asserts! (is-valid-hash authenticity-hash) ERR-INVALID-HASH-FORMAT)
     (asserts! (> expiry-date production-date) ERR-INVALID-TIMESTAMP)
     (asserts! (> total-units u0) ERR-INVALID-INPUT-FORMAT)
@@ -301,7 +285,7 @@
       is-verified: false,
       verification-time: none,
       verified-by: none,
-      current-location: validated-location,
+      current-location: current-location,
       regulatory-approval: regulatory-approval,
       active-ingredients: active-ingredients
     })
@@ -310,7 +294,7 @@
     (map-set batch-lookup batch-code {
       drug-id: drug-id,
       manufacturer: manufacturer,
-      production-facility: validated-location,
+      production-facility: current-location,
       indexed-at: current-time
     })
     
@@ -341,11 +325,11 @@
     (audit-id (var-get next-audit-id))
     (verifier tx-sender)
     (entity-auth (map-get? verification-entities verifier))
-    (validated-location (unwrap! (validate-location verification-location) ERR-INVALID-INPUT-FORMAT))
-    (validated-method (unwrap! (validate-method-description verification-method) ERR-INVALID-INPUT-FORMAT))
   )
     ;; Validation checks
     (asserts! (is-valid-hash provided-hash) ERR-INVALID-HASH-FORMAT)
+    (asserts! (validate-string-length verification-location u200) ERR-INVALID-STRING-LENGTH)
+    (asserts! (validate-string-length verification-method u120) ERR-INVALID-STRING-LENGTH)
     (asserts! (or (is-some entity-auth)
                   (is-eq verifier (var-get platform-admin))) ERR-UNAUTHORIZED-ACCESS)
     (asserts! (> (get expiry-date product-data) current-time) ERR-EXPIRED-PRODUCT)
@@ -374,8 +358,8 @@
         verifier: verifier,
         verification-time: current-time,
         verification-result: verification-successful,
-        method-used: validated-method,
-        location: validated-location,
+        method-used: verification-method,
+        location: verification-location,
         notes: audit-notes,
         additional-data: (concat "BATCH: " (get batch-code product-data))
       })
@@ -395,13 +379,14 @@
   (let (
     (batch-data (unwrap! (map-get? batch-lookup batch-code) ERR-RESOURCE-NOT-FOUND))
     (drug-id (get drug-id batch-data))
-    (validated-location (unwrap! (validate-location verification-location) ERR-INVALID-INPUT-FORMAT))
   )
     (asserts! (is-valid-hash provided-hash) ERR-INVALID-HASH-FORMAT)
+    (asserts! (validate-string-length batch-code u100) ERR-INVALID-STRING-LENGTH)
+    (asserts! (validate-string-length verification-location u200) ERR-INVALID-STRING-LENGTH)
     (verify-pharmaceutical-authenticity 
       drug-id 
       provided-hash 
-      validated-location
+      verification-location
       "BATCH-CODE-VERIFICATION")
   )
 )
@@ -419,11 +404,11 @@
     (product-data (unwrap! (map-get? pharmaceutical-products drug-id) ERR-RESOURCE-NOT-FOUND))
     (current-time (unwrap-panic (get-block-info? time (- block-height u1))))
     (transfer-id (var-get next-transfer-id))
-    (validated-location (unwrap! (validate-location transfer-location) ERR-INVALID-INPUT-FORMAT))
   )
     ;; Validation checks
     (asserts! (is-valid-principal recipient) ERR-INVALID-PRINCIPAL)
-    (asserts! (is-valid-string authorization-ref) ERR-INVALID-INPUT-FORMAT)
+    (asserts! (validate-string-length transfer-location u200) ERR-INVALID-STRING-LENGTH)
+    (asserts! (validate-string-length authorization-ref u120) ERR-INVALID-STRING-LENGTH)
     (asserts! (> units-to-transfer u0) ERR-INVALID-INPUT-FORMAT)
     (asserts! (<= units-to-transfer (get remaining-units product-data)) ERR-INSUFFICIENT-INVENTORY)
     
@@ -437,7 +422,7 @@
       from-entity: tx-sender,
       to-entity: recipient,
       transfer-time: current-time,
-      transfer-location: validated-location,
+      transfer-location: transfer-location,
       authorization-ref: authorization-ref,
       units-transferred: units-to-transfer
     })
@@ -445,7 +430,7 @@
     ;; Update product location and inventory
     (map-set pharmaceutical-products drug-id
       (merge product-data { 
-        current-location: validated-location,
+        current-location: transfer-location,
         remaining-units: (- (get remaining-units product-data) units-to-transfer)
       }))
     
